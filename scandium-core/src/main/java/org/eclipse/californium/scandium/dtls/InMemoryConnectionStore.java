@@ -82,7 +82,7 @@ import org.slf4j.LoggerFactory;
 public final class InMemoryConnectionStore implements ResumptionSupportingConnectionStore {
 
 	private static final Logger LOG = LoggerFactory.getLogger(InMemoryConnectionStore.class.getName());
-	private static final int DEFAULT_CID_LENGTH = 6;
+	private static final int DEFAULT_EXTRA_CID_LENGTH = 2; // extra cid bytes additionally to required bytes for the capacity.
 	private static final int DEFAULT_CACHE_SIZE = 150000;
 	private static final long DEFAULT_EXPIRATION_THRESHOLD = 36 * 60 * 60; // 36h
 	private final LeastRecentlyUsedCache<ConnectionId, Connection> connections;
@@ -99,7 +99,7 @@ public final class InMemoryConnectionStore implements ResumptionSupportingConnec
 	 * a connection expiration threshold of 36 hours.
 	 */
 	public InMemoryConnectionStore() {
-		this(DEFAULT_CACHE_SIZE, DEFAULT_EXPIRATION_THRESHOLD, null);
+		this(null, DEFAULT_CACHE_SIZE, DEFAULT_EXPIRATION_THRESHOLD, null);
 	}
 
 	/**
@@ -110,7 +110,7 @@ public final class InMemoryConnectionStore implements ResumptionSupportingConnec
 	 *            connection state of established DTLS sessions.
 	 */
 	public InMemoryConnectionStore(final SessionCache sessionCache) {
-		this(DEFAULT_CACHE_SIZE, DEFAULT_EXPIRATION_THRESHOLD, sessionCache);
+		this(null, DEFAULT_CACHE_SIZE, DEFAULT_EXPIRATION_THRESHOLD, sessionCache);
 	}
 
 	/**
@@ -122,29 +122,37 @@ public final class InMemoryConnectionStore implements ResumptionSupportingConnec
 	 *            a new connection is to be added to the store
 	 */
 	public InMemoryConnectionStore(final int capacity, final long threshold) {
-		this(capacity, threshold, null);
+		this(null, capacity, threshold, null);
 	}
 
 	/**
 	 * Creates a store based on given configuration parameters.
 	 * 
+	 * @param cidLength connection id length. If {@code null} or {@code 0}, the
+	 *            number of bytes required for the provided capacity plus
+	 *            {@link #DEFAULT_EXTRA_CID_LENGTH} is used.
 	 * @param capacity the maximum number of connections the store can manage
-	 * @param threshold the period of time of inactivity (in seconds) after which a
-	 *            connection is considered stale and can be evicted from the store if
-	 *            a new connection is to be added to the store
+	 * @param threshold the period of time of inactivity (in seconds) after
+	 *            which a connection is considered stale and can be evicted from
+	 *            the store if a new connection is to be added to the store
 	 * @param sessionCache a second level cache to use for <em>current</em>
-	 *                     connection state of established DTLS sessions.
-	 *                     If implements {@link ClientSessionCache}, restore
-	 *                     connection from the cache and mark them to resume. 
+	 *            connection state of established DTLS sessions. If implements
+	 *            {@link ClientSessionCache}, restore connection from the cache
+	 *            and mark them to resume.
 	 */
-	public InMemoryConnectionStore(final int capacity, final long threshold, final SessionCache sessionCache) {
+	public InMemoryConnectionStore(final Integer cidLength, final int capacity, final long threshold, final SessionCache sessionCache) {
 		this.connections = new LeastRecentlyUsedCache<>(capacity, threshold);
 		this.connections.setEvictingOnReadAccess(false);
 		this.connections.setUpdatingOnReadAccess(false);
 		this.connectionsByEstablishedSession = new ConcurrentHashMap<>();
 		this.connectionsByAddress = new ConcurrentHashMap<>();
 		this.sessionCache = sessionCache;
-		this.cidLength = DEFAULT_CID_LENGTH;
+		if (cidLength == null || cidLength == 0) {
+			int bits = Integer.SIZE - Integer.numberOfLeadingZeros(capacity);
+			this.cidLength = ((bits + 7)/ 8) + DEFAULT_EXTRA_CID_LENGTH;
+		} else {
+			this.cidLength = cidLength;
+		}
 		if (sessionCache != null) {
 			// make sure that session state for stale (evicted) connections is removed from second level cache
 			connections.addEvictionListener(new LeastRecentlyUsedCache.EvictionListener<Connection>() {
