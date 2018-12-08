@@ -160,6 +160,13 @@ public class NetworkConfigDefaults {
 	 */
 	public static final int DEFAULT_MULTICAST_BASE_MID = 65000;
 
+	/**
+	 * The default dtls connection id length.
+	 * <p>
+	 * The default value is "" for disabled.
+	 */
+	public static final String DEFAULT_DTLS_CONNECTION_ID_LENGTH = ""; // disabled
+	public static final boolean DEFAULT_DTLS_CONNECTION_ID_HANDSHAKE = false; // not used during handshake itself
 	/*
 	 * Accept other message versions than 1
 	 * Refuse unknown options
@@ -240,6 +247,7 @@ public class NetworkConfigDefaults {
 
 		config.setLong(Keys.SECURE_SESSION_TIMEOUT, DEFAULT_SECURE_SESSION_TIMEOUT);
 		config.setLong(Keys.DTLS_AUTO_RESUME_TIMEOUT, DEFAULT_DTLS_AUTO_RESUME_TIMEOUT);
+		config.setString(Keys.DTLS_CONNECTION_ID_LENGTH, DEFAULT_DTLS_CONNECTION_ID_LENGTH);
 
 		config.setInt(Keys.MULTICAST_BASE_MID, DEFAULT_MULTICAST_BASE_MID);
 	}
