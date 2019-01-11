@@ -114,8 +114,6 @@ public final class DtlsConnectorConfig {
 	 */
 	private static final int DEFAULT_RECEIVER_THREADS = (Runtime.getRuntime().availableProcessors() + 1) / 2;
 
-	private static final String EC_ALGORITHM_NAME = "EC";
-
 	/**
 	 * Local network interface.
 	 */
@@ -1727,20 +1725,12 @@ public final class DtlsConnectorConfig {
 			boolean certifacte = false;
 			boolean psk = false;
 			for (CipherSuite suite : config.supportedCipherSuites) {
-				switch (suite) {
-				case TLS_PSK_WITH_AES_128_CCM_8:
-				case TLS_PSK_WITH_AES_128_CBC_SHA256:
-				case TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256:
+				if (suite.isPskBased()) {
 					verifyPskBasedCipherConfig(suite);
 					psk = true;
-					break;
-				case TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8:
-				case TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256:
+				} else if (suite.requiresServerCertificateMessage()) {
 					verifyEcBasedCipherConfig(suite);
 					certifacte = true;
-					break;
-				default:
-					break;
 				}
 			}
 
@@ -1776,17 +1766,17 @@ public final class DtlsConnectorConfig {
 				if (!clientOnly) {
 					throw new IllegalStateException("Identity must be set for configured " + suite.name());
 				}
-			} else if (suite.isEccBased()) {
-				if (!EC_ALGORITHM_NAME.equals(config.privateKey.getAlgorithm())
-						|| !EC_ALGORITHM_NAME.equals(config.publicKey.getAlgorithm())) {
-					// test if private & public key are ECDSA capable
-					throw new IllegalStateException("Keys must be ECDSA capable for configured " + suite.name());
+			} else {
+				String algorithm = suite.getCertificateKeyAlgorithm().name();
+				if (!algorithm.equals(config.privateKey.getAlgorithm())
+						|| !algorithm.equals(config.publicKey.getAlgorithm())) {
+					throw new IllegalStateException(
+							"Keys must be " + algorithm + " capable for configured " + suite.name());
 				}
 			}
 			if (clientOnly || config.clientAuthenticationRequired || config.clientAuthenticationWanted) {
 				if (config.trustCertificateTypes == null) {
-					throw new IllegalStateException(
-							"trust must be set for configured " + suite.name());
+					throw new IllegalStateException("trust must be set for configured " + suite.name());
 				}
 				if (config.trustCertificateTypes.contains(CertificateType.RAW_PUBLIC_KEY)) {
 					if (config.trustedRPKs == null) {
@@ -1810,14 +1800,12 @@ public final class DtlsConnectorConfig {
 			boolean certificates = isConfiguredWithKeyPair() || config.trustCertificateTypes != null;
 
 			if (certificates) {
-				ciphers.add(CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_CCM_8);
-				ciphers.add(CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA256);
+				// currently only ECDSA is supported!
+				ciphers.addAll(CipherSuite.getEcdsaCipherSuites());
 			}
 
 			if (config.pskStore != null) {
-				ciphers.add(CipherSuite.TLS_PSK_WITH_AES_128_CCM_8);
-				ciphers.add(CipherSuite.TLS_PSK_WITH_AES_128_CBC_SHA256);
-				ciphers.add(CipherSuite.TLS_ECDHE_PSK_WITH_AES_128_CBC_SHA256);
+				ciphers.addAll(CipherSuite.getPskCipherSuites());
 			}
 
 			config.supportedCipherSuites = ciphers;

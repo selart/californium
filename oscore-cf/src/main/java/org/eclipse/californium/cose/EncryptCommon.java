@@ -46,6 +46,8 @@ import java.security.InvalidKeyException;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 
+import javax.crypto.spec.SecretKeySpec;
+
 import org.eclipse.californium.scandium.dtls.cipher.CCMBlockCipher;
 
 /**
@@ -126,7 +128,7 @@ public abstract class EncryptCommon extends Message {
 		}
 
 		try {
-			rgbContent = CCMBlockCipher.decrypt(rgbKey, iv.GetByteString(), getExternal(), getEncryptedContent(), 0);
+			rgbContent = CCMBlockCipher.decrypt(new SecretKeySpec(rgbKey, "AES"), iv.GetByteString(), getExternal(), getEncryptedContent(), 0);
 		} catch (NoSuchAlgorithmException ex) {
 			throw new CoseException("Algorithm not supported", ex);
 		} catch (InvalidKeyException ex) {
@@ -166,7 +168,7 @@ public abstract class EncryptCommon extends Message {
 		}
 
 		try {
-			rgbEncrypt = CCMBlockCipher.encrypt(rgbKey, iv.GetByteString(), getExternal(), GetContent(), 0);
+			rgbEncrypt = CCMBlockCipher.encrypt(new SecretKeySpec(rgbKey, "AES"), iv.GetByteString(), getExternal(), GetContent(), 0);
 		} catch (NoSuchAlgorithmException ex) {
 			throw new CoseException("Algorithm not supported", ex);
 		} catch (Exception ex) {

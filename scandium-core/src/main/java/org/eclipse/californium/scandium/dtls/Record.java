@@ -33,14 +33,15 @@ import java.util.List;
 
 import javax.crypto.Cipher;
 import javax.crypto.Mac;
+import javax.crypto.SecretKey;
 import javax.crypto.spec.IvParameterSpec;
 
 import org.eclipse.californium.elements.util.DatagramReader;
 import org.eclipse.californium.elements.util.DatagramWriter;
 import org.eclipse.californium.elements.util.StringUtil;
-import org.eclipse.californium.scandium.dtls.cipher.CCMBlockCipher;
 import org.eclipse.californium.scandium.dtls.cipher.CipherManager;
 import org.eclipse.californium.scandium.dtls.cipher.CipherSuite;
+import org.eclipse.californium.scandium.dtls.cipher.AeadBlockCipher;
 import org.eclipse.californium.scandium.dtls.cipher.InvalidMacException;
 import org.eclipse.californium.scandium.util.ByteArrayUtils;
 import org.slf4j.Logger;
@@ -460,6 +461,7 @@ public class Record {
 			throw new NullPointerException("Compressed fragment must not be null");
 		}
 
+		DTLSConnectionState writeState = session.getWriteState();
 		/*
 		 * See http://tools.ietf.org/html/rfc5246#section-6.2.3.2 for
 		 * explanation
@@ -468,13 +470,13 @@ public class Record {
 		plaintext.writeBytes(compressedFragment);
 
 		// add MAC
-		plaintext.writeBytes(getBlockCipherMac(session.getWriteState(), compressedFragment));
+		plaintext.writeBytes(getBlockCipherMac(writeState, compressedFragment));
 
 		// determine padding length
-		int ciphertextLength = compressedFragment.length + session.getWriteState().getCipherSuite().getMacLength() + 1;
-		int smallestMultipleOfBlocksize = session.getWriteState().getRecordIvLength();
+		int ciphertextLength = compressedFragment.length + writeState.getCipherSuite().getMacLength() + 1;
+		int smallestMultipleOfBlocksize = writeState.getRecordIvLength();
 		while ( smallestMultipleOfBlocksize <= ciphertextLength) {
-			smallestMultipleOfBlocksize += session.getWriteState().getRecordIvLength();
+			smallestMultipleOfBlocksize += writeState.getRecordIvLength();
 		}
 		int paddingLength = smallestMultipleOfBlocksize % ciphertextLength;
 
@@ -482,8 +484,8 @@ public class Record {
 		byte[] padding = new byte[paddingLength + 1];
 		Arrays.fill(padding, (byte) paddingLength);
 		plaintext.writeBytes(padding);
-		Cipher blockCipher = CipherManager.getInstance(session.getWriteState().getCipherSuite().getTransformation());
-		blockCipher.init(Cipher.ENCRYPT_MODE, session.getWriteState().getEncryptionKey());
+		Cipher blockCipher = CipherManager.getInstance(writeState.getCipherSuite().getTransformation());
+		blockCipher.init(Cipher.ENCRYPT_MODE, writeState.getEncryptionKey());
 
 		// create GenericBlockCipher structure
 		DatagramWriter result = new DatagramWriter();
@@ -580,31 +582,47 @@ public class Record {
 	}
 
 	// AEAD Cryptography //////////////////////////////////////////////
-
 	protected byte[] encryptAEAD(byte[] byteArray) throws GeneralSecurityException {
 		/*
 		 * See http://tools.ietf.org/html/rfc5246#section-6.2.3.3 for
 		 * explanation of additional data or
 		 * http://tools.ietf.org/html/rfc5116#section-2.1
 		 */
-		byte[] iv = session.getWriteState().getIv().getIV();
-		byte[] nonce = generateNonce(iv);
-		byte[] key = session.getWriteState().getEncryptionKey().getEncoded();
+		DTLSConnectionState writeState = session.getWriteState();
+		byte[] iv = writeState.getIv().getIV();
+		byte[] explicitNonce = generateExplicitNonce();
+		/*
+		 * http://tools.ietf.org/html/draft-mcgrew-tls-aes-ccm-ecc-03#section-2:
+		 * 
+		 * <pre>
+		 * struct {
+		 *   case client:
+		 *     uint32 client_write_IV;  // low order 32-bits
+		 *   case server:
+		 *     uint32 server_write_IV;  // low order 32-bits
+		 *  uint64 seq_num;
+		 * } CCMNonce.
+		 * </pre>
+		 * 
+		 * @param iv
+		 *            the write IV (either client or server).
+		 * @return the 12 bytes nonce.
+		 */
+		byte[] nonce = getNonce(iv, explicitNonce);
 		byte[] additionalData = generateAdditionalData(byteArray.length);
+		SecretKey key = writeState.getEncryptionKey();
 
 		if (LOGGER.isTraceEnabled()) {
 			LOGGER.trace("encrypt: {} bytes", byteArray.length);
 			LOGGER.trace("nonce: {}", StringUtil.byteArray2HexString(nonce, StringUtil.NO_SEPARATOR, 0));
 			LOGGER.trace("adata: {}", StringUtil.byteArray2HexString(additionalData, StringUtil.NO_SEPARATOR, 0));
 		}
-		byte[] encryptedFragment = CCMBlockCipher.encrypt(key, nonce, additionalData, byteArray, 8);
-
+		byte[] encryptedFragment = AeadBlockCipher.encrypt(writeState.getCipherSuite(), key, nonce, additionalData, byteArray);
 		/*
 		 * Prepend the explicit nonce as specified in
 		 * http://tools.ietf.org/html/rfc5246#section-6.2.3.3 and
 		 * http://tools.ietf.org/html/draft-mcgrew-tls-aes-ccm-04#section-3
 		 */
-		byte[] explicitNonce = generateExplicitNonce();
 		encryptedFragment = ByteArrayUtils.concatenate(explicitNonce, encryptedFragment);
 		LOGGER.trace("==> {} bytes", encryptedFragment.length);
 
@@ -628,10 +646,11 @@ public class Record {
 		} else if (byteArray == null) {
 			throw new NullPointerException("Ciphertext must not be null");
 		}
+		CipherSuite cipherSuite = currentReadState.getCipherSuite();
 		// the "implicit" part of the nonce is the salt as exchanged during the session establishment
 		byte[] iv = currentReadState.getIv().getIV();
 		// the symmetric key exchanged during the DTLS handshake
-		byte[] key = currentReadState.getEncryptionKey().getEncoded();
+		SecretKey key = currentReadState.getEncryptionKey();
 		/*
 		 * See http://tools.ietf.org/html/rfc5246#section-6.2.3.3 and
 		 * http://tools.ietf.org/html/rfc5116#section-2.1 for an
@@ -640,52 +659,35 @@ public class Record {
 		 * The decrypted message is always 16 bytes shorter than the cipher (8
 		 * for the authentication tag and 8 for the explicit nonce).
 		 */
-		byte[] additionalData = generateAdditionalData(byteArray.length - 16);
+		int applicationDataLength = byteArray.length - cipherSuite.getRecordIvLength() - cipherSuite.getCiphertextExpansion();
+		byte[] additionalData = generateAdditionalData(applicationDataLength);
 
 		DatagramReader reader = new DatagramReader(byteArray);
 	
-		// create explicit nonce from values provided in DTLS record 
-		byte[] explicitNonce = generateExplicitNonce();
 		// retrieve actual explicit nonce as contained in GenericAEADCipher struct (8 bytes long)
-		byte[] explicitNonceUsed = reader.readBytes(8);
-		if (LOGGER.isDebugEnabled() && !Arrays.equals(explicitNonce, explicitNonceUsed)) {
-			StringBuilder b = new StringBuilder("The explicit nonce used by the sender does not match the values provided in the DTLS record");
-			b.append(StringUtil.lineSeparator()).append("Used    : ").append(ByteArrayUtils.toHexString(explicitNonceUsed));
-			b.append(StringUtil.lineSeparator()).append("Expected: ").append(ByteArrayUtils.toHexString(explicitNonce));
-			LOGGER.debug(b.toString());
-		}
+		byte[] explicitNonceUsed = reader.readBytes(cipherSuite.getRecordIvLength());
 
 		byte[] nonce = getNonce(iv, explicitNonceUsed);
 		if (LOGGER.isTraceEnabled()) {
-			LOGGER.trace("decrypt: {} bytes", byteArray.length - 16);
+			LOGGER.trace("decrypt: {} bytes", applicationDataLength);
 			LOGGER.trace("nonce: {}", StringUtil.byteArray2HexString(nonce, StringUtil.NO_SEPARATOR, 0));
 			LOGGER.trace("adata: {}", StringUtil.byteArray2HexString(additionalData, StringUtil.NO_SEPARATOR, 0));
 		}
-		return CCMBlockCipher.decrypt(key, nonce, additionalData, reader.readBytesLeft(), 8);
+		if (LOGGER.isDebugEnabled() && AeadBlockCipher.AES_CCM.equals(cipherSuite.getTransformation())) {
+			// create explicit nonce from values provided in DTLS record 
+			byte[] explicitNonce = generateExplicitNonce();
+			// retrieve actual explicit nonce as contained in GenericAEADCipher struct (8 bytes long)
+			if ( !Arrays.equals(explicitNonce, explicitNonceUsed)) {
+				StringBuilder b = new StringBuilder("The explicit nonce used by the sender does not match the values provided in the DTLS record");
+				b.append(StringUtil.lineSeparator()).append("Used    : ").append(ByteArrayUtils.toHexString(explicitNonceUsed));
+				b.append(StringUtil.lineSeparator()).append("Expected: ").append(ByteArrayUtils.toHexString(explicitNonce));
+				LOGGER.debug(b.toString());
+			}
+		}
+		return AeadBlockCipher.decrypt(cipherSuite, key, nonce, additionalData, reader.readBytesLeft());
 	}
 
 	// Cryptography Helper Methods ////////////////////////////////////
-
-	/**
-	 * http://tools.ietf.org/html/draft-mcgrew-tls-aes-ccm-ecc-03#section-2:
-	 * 
-	 * <pre>
-	 * struct {
-	 *   case client:
-	 *     uint32 client_write_IV;  // low order 32-bits
-	 *   case server:
-	 *     uint32 server_write_IV;  // low order 32-bits
-	 *  uint64 seq_num;
-	 * } CCMNonce.
-	 * </pre>
-	 * 
-	 * @param iv
-	 *            the write IV (either client or server).
-	 * @return the 12 bytes nonce.
-	 */
-	private byte[] generateNonce(byte[] iv) {
-		return getNonce(iv, generateExplicitNonce());
-	}
 
 	private byte[] getNonce(byte[] implicitNonce, byte[] explicitNonce) {
 		DatagramWriter writer = new DatagramWriter();

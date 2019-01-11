@@ -70,9 +70,14 @@ public final class Finished extends HandshakeMessage {
 	 * @param peerAddress the IP address and port of the peer this
 	 *            message has been received from or should be sent to
 	 */
-	public Finished(byte[] masterSecret, boolean isClient, byte[] handshakeHash, InetSocketAddress peerAddress) {
+	public Finished(String prfMacName, byte[] masterSecret, boolean isClient, byte[] handshakeHash, InetSocketAddress peerAddress) {
 		super(peerAddress);
-		verifyData = getVerifyData(masterSecret, isClient, handshakeHash);
+		verifyData = getVerifyData(prfMacName, masterSecret, isClient, handshakeHash);
+		if (LOG.isDebugEnabled()) {
+			LOG.debug("master: {}", StringUtil.byteArray2Hex(masterSecret));
+			LOG.debug("hash: {}", StringUtil.byteArray2Hex(handshakeHash));
+			LOG.debug("mac:    {}", StringUtil.byteArray2Hex(verifyData));
+		}
 	}
 
 	/**
@@ -104,9 +109,9 @@ public final class Finished extends HandshakeMessage {
 	 *            the handshake hash.
 	 * @throws HandshakeException if the data can not be verified.
 	 */
-	public void verifyData(byte[] masterSecret, boolean isClient, byte[] handshakeHash) throws HandshakeException {
+	public void verifyData(String prfMacName, byte[] masterSecret, boolean isClient, byte[] handshakeHash) throws HandshakeException {
 
-		byte[] myVerifyData = getVerifyData(masterSecret, isClient, handshakeHash);
+		byte[] myVerifyData = getVerifyData(prfMacName, masterSecret, isClient, handshakeHash);
 
 		if (!Arrays.equals(myVerifyData, verifyData)) {
 			StringBuilder msg = new StringBuilder("Verification of peer's [").append(getPeer())
@@ -121,14 +126,14 @@ public final class Finished extends HandshakeMessage {
 		}
 	}
 
-	private byte[] getVerifyData(byte[] masterSecret, boolean isClient, byte[] handshakeHash) {
+	private byte[] getVerifyData(String prfMacName, byte[] masterSecret, boolean isClient, byte[] handshakeHash) {
 
 		// See http://tools.ietf.org/html/rfc5246#section-7.4.9:
 		// verify_data = PRF(master_secret, finished_label, Hash(handshake_messages)) [0..verify_data_length-1]
 		if (isClient) {
-			return PseudoRandomFunction.doPRF(masterSecret, Label.CLIENT_FINISHED_LABEL, handshakeHash);
+			return PseudoRandomFunction.doPRF(prfMacName, masterSecret, Label.CLIENT_FINISHED_LABEL, handshakeHash);
 		} else {
-			return PseudoRandomFunction.doPRF(masterSecret, Label.SERVER_FINISHED_LABEL, handshakeHash);
+			return PseudoRandomFunction.doPRF(prfMacName, masterSecret, Label.SERVER_FINISHED_LABEL, handshakeHash);
 		}
 	}
 

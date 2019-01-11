@@ -47,6 +47,7 @@ package org.eclipse.californium.scandium.dtls;
 
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.PublicKey;
 import java.security.SecureRandom;
 import java.security.cert.CertPath;
@@ -292,8 +293,8 @@ public class ClientHandshaker extends Handshaker {
 	 * @throws GeneralSecurityException if the APPLICATION record cannot be created 
 	 */
 	private void receivedServerFinished(Finished message) throws HandshakeException, GeneralSecurityException {
-
-		message.verifyData(session.getMasterSecret(), false, handshakeHash);
+		String prfMacName = session.getCipherSuite().getPseudoRandomFunctionMacName();
+		message.verifyData(prfMacName, session.getMasterSecret(), false, handshakeHash);
 		state = HandshakeType.FINISHED.getCode();
 		sessionEstablished();
 		handshakeCompleted();
@@ -482,6 +483,15 @@ public class ClientHandshaker extends Handshaker {
 			return;
 		}
 		serverHelloDone = message;
+
+		String hashName = session.getCipherSuite().getPseudoRandomFunctionHashName();
+		try {
+			this.md = MessageDigest.getInstance(hashName);
+		} catch (NoSuchAlgorithmException e) {
+			throw new IllegalStateException(
+					String.format("Message digest algorithm %s is not available on JVM", hashName));
+		}
+
 		flightNumber += 2;
 		DTLSFlight flight = new DTLSFlight(getSession(), flightNumber);
 
@@ -595,7 +605,8 @@ public class ClientHandshaker extends Handshaker {
 		}
 
 		handshakeHash = md.digest();
-		Finished finished = new Finished(session.getMasterSecret(), isClient, handshakeHash, session.getPeer());
+		String prfMacName = session.getCipherSuite().getPseudoRandomFunctionMacName();
+		Finished finished = new Finished(prfMacName, session.getMasterSecret(), isClient, handshakeHash, session.getPeer());
 		wrapMessage(flight, finished);
 
 		// compute handshake hash with client's finished message also

@@ -32,6 +32,7 @@ package org.eclipse.californium.scandium.dtls;
 
 import java.security.GeneralSecurityException;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 
 import org.eclipse.californium.elements.util.StringUtil;
@@ -173,15 +174,23 @@ public class ResumingServerHandshaker extends ServerHandshaker {
 							AlertDescription.ILLEGAL_PARAMETER,
 							clientHello.getPeer()));
 		} else {
-			flightNumber += 2;
-			DTLSFlight flight = new DTLSFlight(getSession(), flightNumber);
-			md.update(clientHello.getRawMessage());
-
 			clientRandom = clientHello.getRandom();
 			serverRandom = new Random(new SecureRandom());
 
 			HelloExtensions serverHelloExtensions = new HelloExtensions();
 			processHelloExtensions(clientHello, serverHelloExtensions);
+
+			String hashName = session.getCipherSuite().getPseudoRandomFunctionHashName();
+			try {
+				this.md = MessageDigest.getInstance(hashName);
+			} catch (NoSuchAlgorithmException e) {
+				throw new IllegalStateException(
+						String.format("Message digest algorithm %s is not available on JVM", hashName));
+			}
+
+			flightNumber += 2;
+			DTLSFlight flight = new DTLSFlight(getSession(), flightNumber);
+			md.update(clientHello.getRawMessage());
 
 			ServerHello serverHello = new ServerHello(clientHello.getClientVersion(), serverRandom, session.getSessionIdentifier(),
 					session.getCipherSuite(), session.getCompressionMethod(), serverHelloExtensions, clientHello.getPeer());
@@ -207,7 +216,8 @@ public class ResumingServerHandshaker extends ServerHandshaker {
 			}
 
 			handshakeHash = md.digest();
-			Finished finished = new Finished(session.getMasterSecret(), false, handshakeHash, clientHello.getPeer());
+			String prfMacName = session.getCipherSuite().getPseudoRandomFunctionMacName();
+			Finished finished = new Finished(prfMacName, session.getMasterSecret(), false, handshakeHash, clientHello.getPeer());
 			wrapMessage(flight, finished);
 
 			mdWithServerFinished.update(finished.toByteArray());
@@ -226,7 +236,8 @@ public class ResumingServerHandshaker extends ServerHandshaker {
 	 *             if the client's Finished message can not be verified.
 	 */
 	private void receivedClientFinished(Finished message) throws HandshakeException {
-		message.verifyData(session.getMasterSecret(), true, handshakeHash);
+		String prfMacName = session.getCipherSuite().getPseudoRandomFunctionMacName();
+		message.verifyData(prfMacName, session.getMasterSecret(), true, handshakeHash);
 		sessionEstablished();
 		handshakeCompleted();
 	}

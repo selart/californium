@@ -194,7 +194,7 @@ public class HandshakerTest {
 		handshaker.expectChangeCipherSpecMessage();
 
 		// WHEN the peer's FINISHED message is received out-of-sequence before the ChangeCipherSpec message
-		Finished finished = new Finished(new byte[]{0x00, 0x01}, true, new byte[]{0x00, 0x00}, endpoint);
+		Finished finished = new Finished("HmacSHA256", new byte[]{0x00, 0x01}, true, new byte[]{0x00, 0x00}, endpoint);
 		finished.setMessageSeq(0);
 		Record finishedRecord = getRecordForMessage(1, 0, finished, senderAddress);
 		handshaker.processMessage(finishedRecord);
