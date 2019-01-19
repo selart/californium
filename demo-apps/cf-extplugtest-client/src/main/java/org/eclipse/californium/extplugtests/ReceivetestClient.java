@@ -26,6 +26,7 @@ import java.io.FileNotFoundException;
 import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.ByteBuffer;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Properties;
@@ -97,6 +98,9 @@ public class ReceivetestClient {
 	 * @param args the arguments
 	 */
 	public static void main(String[] args) {
+
+		ByteBuffer buffer = ByteBuffer.allocate(20);
+		buffer.flip();
 
 		if (args.length == 0) {
 
