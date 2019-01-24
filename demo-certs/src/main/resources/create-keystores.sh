@@ -13,13 +13,13 @@ VALIDITY=365
 
 echo "creating root key and certificate..."
 keytool -genkeypair -alias root -keyalg EC -dname 'C=CA,L=Ottawa,O=Eclipse IoT,OU=Californium,CN=cf-root' \
-        -ext BC=ca:true -validity $VALIDITY -keypass $TRUST_STORE_PWD -keystore $TRUST_STORE -storepass $TRUST_STORE_PWD
+        -ext BC=ca:true -ext KU=keyCertSign -validity $VALIDITY -keypass $TRUST_STORE_PWD -keystore $TRUST_STORE -storepass $TRUST_STORE_PWD
 
 echo "creating CA key and certificate..."
 keytool -genkeypair -alias ca -keyalg EC -dname 'C=CA,L=Ottawa,O=Eclipse IoT,OU=Californium,CN=cf-ca' \
         -ext BC=ca:true -validity $VALIDITY -keypass $TRUST_STORE_PWD -keystore $TRUST_STORE -storepass $TRUST_STORE_PWD
 keytool -keystore $TRUST_STORE -storepass $TRUST_STORE_PWD -certreq -alias ca | \
-  keytool -keystore $TRUST_STORE -storepass $TRUST_STORE_PWD -alias root -gencert -validity $VALIDITY -ext BC=0 -rfc | \
+  keytool -keystore $TRUST_STORE -storepass $TRUST_STORE_PWD -alias root -gencert -ext KU=keyCertSign -validity $VALIDITY -ext BC=0 -rfc | \
   keytool -alias ca -importcert -keystore $TRUST_STORE -storepass $TRUST_STORE_PWD
 
 echo "creating server key and certificate..."
@@ -35,6 +35,10 @@ keytool -genkeypair -alias client -keyalg EC -dname 'C=CA,L=Ottawa,O=Eclipse IoT
 keytool -keystore $KEY_STORE -storepass $KEY_STORE_PWD -certreq -alias client | \
   keytool -keystore $TRUST_STORE -storepass $TRUST_STORE_PWD -alias ca -gencert -ext KU=dig -validity $VALIDITY -rfc > client.pem
 keytool -alias client -importcert -keystore $KEY_STORE -storepass $KEY_STORE_PWD -trustcacerts -file client.pem
+
+echo "creating self-signed key and certificate..."
+keytool -genkeypair -alias self -keyalg EC -dname 'C=CA,L=Ottawa,O=Eclipse IoT,OU=Californium,CN=cf-self' \
+        -ext BC=ca:true -ext KU=keyCertSign -ext KU=dig -validity $VALIDITY -keypass $KEY_STORE_PWD -keystore $KEY_STORE -storepass $KEY_STORE_PWD
 
 echo "creating certificate with no digitalSignature keyusage..."
 keytool -genkeypair -alias nosigning -keyalg EC -dname 'C=CA,L=Ottawa,O=Eclipse IoT,OU=Californium,CN=cf-nosigning' \

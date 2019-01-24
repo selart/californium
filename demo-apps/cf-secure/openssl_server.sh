@@ -10,4 +10,4 @@ export CURVE="-named_curve prime256v1"
 echo "ciphers ecdsa:" ${CIPHERS_ECDSA}
 echo "ciphers psk  :" ${CIPHERS_PSK}
 
-openssl s_server -dtls1_2 -port 5684 -listen -no-CAfile -cert server.pem ${CURVE} -cipher ${CIPHERS_ECDSA}:${CIPHERS_PSK} -psk ${PSK}
+openssl s_server -dtls1_2 -port 5684 -listen -no-CAfile -cert self.pem ${CURVE} -cipher ${CIPHERS_ECDSA}:${CIPHERS_PSK} -psk ${PSK}

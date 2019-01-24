@@ -62,10 +62,10 @@ public class SecureServer {
 		// server.addEndpoint(new CoAPEndpoint(new DTLSConnector(new InetSocketAddress("10.200.1.2", DTLS_PORT)), NetworkConfig.getStandard()));
 
 		DtlsConnectorConfig.Builder builder = new DtlsConnectorConfig.Builder();
-		CredentialsUtil.setupCid(args, builder);
 		builder.setAddress(new InetSocketAddress(DTLS_PORT));
+		CredentialsUtil.setupCid(args, builder);
 		List<Mode> modes = CredentialsUtil.parse(args, CredentialsUtil.DEFAULT_SERVER_MODES, SUPPORTED_MODES);
-		CredentialsUtil.setupCredentials(builder, CredentialsUtil.SERVER_NAME, modes);
+		CredentialsUtil.setupCredentials(builder, "self", modes);
 		DTLSConnector connector = new DTLSConnector(builder.build());
 		CoapEndpoint.Builder coapBuilder = new CoapEndpoint.Builder();
 		coapBuilder.setConnector(connector);

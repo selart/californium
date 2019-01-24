@@ -11,4 +11,4 @@ export CURVE="-curves prime256v1"
 echo "ciphers ecdsa:" ${CIPHERS_ECDSA}
 echo "ciphers psk  :" ${CIPHERS_PSK}
 
-openssl s_client -dtls1_2 -connect 127.0.0.1:5684 -psk ${PSK} -no-CAfile ${CURVE} -cipher PSK-AES128-GCM-SHA256
+openssl s_client -dtls1_2 -connect 127.0.0.1:5684 -psk ${PSK} -no-CAfile ${CURVE} -cipher ECDHE-ECDSA-AES128-GCM-SHA256

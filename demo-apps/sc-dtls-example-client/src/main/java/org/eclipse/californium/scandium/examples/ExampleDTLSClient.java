@@ -59,7 +59,7 @@ public class ExampleDTLSClient {
 
 	private static CountDownLatch messageCounter;
 
-	private static String payload = "HELLO WORLD";
+	private static String payload = "HELLO, WORLD!";
 	
 	private DTLSConnector dtlsConnector;
 	private AtomicInteger clientMessageCounter = new AtomicInteger();
@@ -68,18 +68,20 @@ public class ExampleDTLSClient {
 		try {
 			// load key store
 			SslContextUtil.Credentials clientCredentials = SslContextUtil.loadCredentials(
-					SslContextUtil.CLASSPATH_SCHEME + KEY_STORE_LOCATION, "client", KEY_STORE_PASSWORD,
+					SslContextUtil.CLASSPATH_SCHEME + KEY_STORE_LOCATION, "self", KEY_STORE_PASSWORD,
 					KEY_STORE_PASSWORD);
-			Certificate[] trustedCertificates = SslContextUtil.loadTrustedCertificates(
-					SslContextUtil.CLASSPATH_SCHEME + TRUST_STORE_LOCATION, "root", TRUST_STORE_PASSWORD);
+//			Certificate[] trustedCertificates = SslContextUtil.loadTrustedCertificates(
+//					SslContextUtil.CLASSPATH_SCHEME + TRUST_STORE_LOCATION, "root", TRUST_STORE_PASSWORD);
+			Certificate[] trustedCertificates = new Certificate[0]; // trust all
 
 			DtlsConnectorConfig.Builder builder = new DtlsConnectorConfig.Builder();
-			builder.setPskStore(new StaticPskStore("Client_identity", "secretPSK".getBytes()));
+			builder.setPskStore(new StaticPskStore("Client_identity", "secretPSK".getBytes())); // 73 65 63 72 65 74 50 53 4b
 			builder.setIdentity(clientCredentials.getPrivateKey(), clientCredentials.getCertificateChain(),
 					CertificateType.RAW_PUBLIC_KEY, CertificateType.X_509);
 			builder.setTrustStore(trustedCertificates);
 			builder.setRpkTrustAll();
 			builder.setConnectionThreadCount(1);
+			builder.setConnectionIdLength(0); // support, but don't use cid
 			dtlsConnector = new DTLSConnector(builder.build());
 			dtlsConnector.setRawDataReceiver(new RawDataChannel() {
 
@@ -101,12 +103,12 @@ public class ExampleDTLSClient {
 		messageCounter.countDown();
 		long c = messageCounter.getCount();
 		if (LOG.isInfoEnabled()) {
-			LOG.info("Received response: {} {}", new Object[] { new String(raw.getBytes()), c });
+			LOG.info("Received response: {} {}", new String(raw.getBytes()), c);
 		}
 		if (0 < c) {
 			clientMessageCounter.incrementAndGet();
 			try {
-				RawData data = RawData.outbound((payload + c + ".").getBytes(), raw.getEndpointContext(), null, false);
+				RawData data = RawData.outbound((payload + " " + c + ".").getBytes(), raw.getEndpointContext(), null, false);
 				dtlsConnector.send(data);
 			} catch (IllegalStateException e) {
 				LOG.debug("send failed after {} messages", (c - 1), e);
@@ -139,8 +141,8 @@ public class ExampleDTLSClient {
 
 	public static void main(String[] args) throws InterruptedException {
 		int clients = 1;
-		int messages = 100;
-		int length = 64;
+		int messages = 10;
+		int length = 0;
 		if (0 < args.length) {
 			clients = Integer.parseInt(args[0]);
 			if (1 < args.length) {
@@ -152,11 +154,12 @@ public class ExampleDTLSClient {
 		}
 		int maxMessages = (messages * clients);
 		messageCounter = new CountDownLatch(maxMessages);
-		while (payload.length() < length) {
-			payload += payload;
+		if (length > 0) {
+			while (payload.length() < length) {
+				payload += payload;
+			}
+			payload = payload.substring(0, length);
 		}
-		payload = payload.substring(0, length);
-		
 		List<ExampleDTLSClient> clientList = new ArrayList<>(clients);
 		ExecutorService executor = Executors.newFixedThreadPool(Runtime.getRuntime().availableProcessors(),
 				new DaemonThreadFactory("Aux#"));
@@ -231,16 +234,17 @@ public class ExampleDTLSClient {
 			int last = 0;
 			for (int index = 1; index < clients; ++index) {
 				if ((statistic[index] / grouped) > (statistic[last] / grouped)) {
-					if (statistic[index-1] == statistic[last]) {
+					if (statistic[index - 1] == statistic[last]) {
 						System.out.println((index - last) + " clients with " + statistic[last] + " messages.");
-					}
-					else {
-						System.out.println((index - last) + " clients with " + statistic[last] + " to " + statistic[index-1] + " messages.");
+					} else {
+						System.out.println((index - last) + " clients with " + statistic[last] + " to "
+								+ statistic[index - 1] + " messages.");
 					}
 					last = index;
 				}
 			}
-			System.out.println((clients - last) + " clients with " + statistic[last] + " to " + statistic[clients-1] + " messages.");
+			System.out.println((clients - last) + " clients with " + statistic[last] + " to " + statistic[clients - 1]
+					+ " messages.");
 		}
 	}
 }
