@@ -746,6 +746,8 @@ public class Record {
 		writer.write(version.getMajor(), VERSION_BITS);
 		writer.write(version.getMinor(), VERSION_BITS);
 		if (connectionId != null && !connectionId.isEmpty()) {
+			// work around for go, add cid_length, removed in draft - PR 29
+			writer.write(connectionId.length(), 8);
 			writer.writeBytes(connectionId.getBytes());
 		}		
 		writer.write(length, LENGTH_BITS);

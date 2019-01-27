@@ -693,7 +693,8 @@ public abstract class Handshaker {
 		int maxFragmentLength = session.getMaxFragmentLength();
 
 		if (messageLength <= maxFragmentLength) {
-			boolean useCid = handshakeMessage.getMessageType() == HandshakeType.FINISHED;
+			// work around for go, don't used cid in FINISHED
+			boolean useCid = false; // handshakeMessage.getMessageType() == HandshakeType.FINISHED;
 			flight.addMessage(new Record(ContentType.HANDSHAKE, session.getWriteEpoch(),
 					session.getSequenceNumber(), handshakeMessage, session, useCid, 0));
 			return;

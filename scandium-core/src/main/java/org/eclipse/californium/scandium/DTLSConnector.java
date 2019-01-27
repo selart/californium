@@ -231,8 +231,10 @@ public class DTLSConnector implements Connector, RecordLayer {
 	 * connection id. May be randomized to obfuscate the payload length. Due to
 	 * the ongoing discussion in draft-ietf-tls-dtls-connection-id, currently
 	 * only a fixed value.
+	 * 
+	 * Work around for go: use always exactly 1 byte padding!
 	 */
-	private static final int TLS12_CID_PADDING = 0;
+	private static final int TLS12_CID_PADDING = 1;
 
 	/** all the configuration options for the DTLS connector */ 
 	private final DtlsConnectorConfig config;
