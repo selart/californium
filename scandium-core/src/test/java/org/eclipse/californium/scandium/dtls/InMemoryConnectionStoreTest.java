@@ -123,10 +123,68 @@ public class InMemoryConnectionStoreTest {
 		assertThat(store.get(con.getPeerAddress()), is(nullValue()));
 	}
 
+	@Test
+	public void testPutSameAddressAddsConnection() throws Exception {
+		// given an empty connection store
+		assertThat(store.remainingCapacity(), is(INITIAL_CAPACITY));
+
+		// when adding a new connection to the store
+		Connection con1 =  newConnection(51L);
+		InetSocketAddress addr1 = con1.getPeerAddress();
+		assertTrue(store.put(con1));
+		Connection con2 =  newConnection(51L);
+		InetSocketAddress addr2 = con2.getPeerAddress();
+		assertTrue(store.put(con2));
+
+		// assert that the store has two entries
+		assertThat(store.remainingCapacity(), is(INITIAL_CAPACITY - 2));
+
+		assertThat(addr1, is(addr2));
+		assertThat(con1.getConnectionId(), is(not(con2.getConnectionId())));
+
+		assertThat(store.get(con1.getConnectionId()), is(con1));
+		assertThat(store.get(con2.getConnectionId()), is(con2));
+		assertThat(con1.getPeerAddress(), is(nullValue()));
+		assertThat(store.get(addr1), is(con2));
+	}
+
+	@Test
+	public void testUpdateAddress() throws Exception {
+		// given an empty connection store
+		assertThat(store.remainingCapacity(), is(INITIAL_CAPACITY));
+
+		// when adding a new connection to the store
+		Connection con1 =  newConnection(51L);
+		InetSocketAddress addr1 = con1.getPeerAddress();
+		assertTrue(store.put(con1));
+		Connection con2 =  newConnection(52L);
+		InetSocketAddress addr2 = con2.getPeerAddress();
+		assertTrue(store.put(con2));
+
+		assertThat(con1.getConnectionId(), is(not(con2.getConnectionId())));
+
+		// assert that the store has two entries
+		assertThat(store.remainingCapacity(), is(INITIAL_CAPACITY - 2));
+
+		store.update(con2, addr1);
+
+		assertThat(store.get(con1.getConnectionId()), is(con1));
+		assertThat(store.get(con2.getConnectionId()), is(con2));
+		assertThat(con1.getPeerAddress(), is(nullValue()));
+		assertThat(store.get(addr1), is(con2));
+
+		store.update(con1, addr2);
+
+		assertThat(store.get(con1.getConnectionId()), is(con1));
+		assertThat(store.get(con2.getConnectionId()), is(con2));
+		assertThat(con1.getPeerAddress(), is(addr2));
+		assertThat(store.get(addr2), is(con1));
+	}
+
 	private Connection newConnection(long ip) throws HandshakeException, UnknownHostException {
 		InetAddress addr = InetAddress.getByAddress(longToIp(ip));
 		InetSocketAddress peerAddress = new InetSocketAddress(addr, 0);
-		Connection con = new Connection(peerAddress, new SerialExecutor(ExecutorsUtil.getScheduledExecutor()));
+		Connection con = new Connection(peerAddress, new TestSerialExecutor());
 		con.getSessionListener().sessionEstablished(null, newSession(peerAddress));
 		return con;
 	}
@@ -143,5 +201,18 @@ public class InMemoryConnectionStoreTest {
 			ip >>= 8;
 		}
 		return result;
+	}
+
+	private static class TestSerialExecutor extends SerialExecutor {
+		private TestSerialExecutor() {
+			super(ExecutorsUtil.getScheduledExecutor());
+		}
+		/**
+		 * Ensure, the jobs are executed synchronous with the test.
+		 */
+		@Override
+		public void execute(final Runnable command) {
+			command.run();
+		}
 	}
 }

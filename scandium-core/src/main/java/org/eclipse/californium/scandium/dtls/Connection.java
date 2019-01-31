@@ -32,6 +32,8 @@
  *                                                    are called via the handshaker.
  *    Achim Kraus (Bosch Software Innovations GmbH) - move DTLSFlight to Handshaker
  *    Achim Kraus (Bosch Software Innovations GmbH) - move serial executor from dtlsconnector
+ *    Achim Kraus (Bosch Software Innovations GmbH) - add connection id as primary 
+ *                                                    lookup key.
  ******************************************************************************/
 package org.eclipse.californium.scandium.dtls;
 
@@ -64,6 +66,7 @@ public final class Connection {
 	private final SessionListener sessionListener;
 	private final AtomicReference<Handshaker> ongoingHandshake = new AtomicReference<Handshaker>();
 	private InetSocketAddress peerAddress;
+	private ConnectionId cid;
 
 	/**
 	 * Expired realtime nanoseconds of the last message send or received.
@@ -114,6 +117,7 @@ public final class Connection {
 			this.ticket = sessionTicket;
 			this.sessionId =sessionId;
 			this.peerAddress = null;
+			this.cid = null;
 			this.sessionListener = null;
 			this.serialExecutor = null;
 		}
@@ -138,6 +142,7 @@ public final class Connection {
 			this.ticket = connection.getSessionTicket();
 			this.sessionId =connection.getSessionIdentity();
 			this.peerAddress = connection.getPeerAddress();
+			this.cid = connection.getConnectionId();
 			this.sessionListener =  new ConnectionSessionListener();
 			this.lastMessageNanos.set(connection.lastMessageNanos.get());
 			this.resumptionRequired = connection.resumptionRequired;
@@ -215,6 +220,24 @@ public final class Connection {
 	 */
 	public boolean hasSessionTicket() {
 		return ticket != null;
+	}
+
+	/**
+	 * Gets the connection id.
+	 * 
+	 * @return the cid
+	 */
+	public ConnectionId getConnectionId() {
+		return cid;
+	}
+
+	/**
+	 * Sets the connection id.
+	 * 
+	 * @param cid the connection id
+	 */
+	public void  setConnectionId(ConnectionId cid) {
+		this.cid = cid;
 	}
 
 	/**
@@ -420,6 +443,9 @@ public final class Connection {
 	@Override
 	public String toString() {
 		StringBuilder builder = new StringBuilder("dtls-con: ");
+		if (cid != null) {
+			builder.append(cid).append(", ");
+		}
 		if (peerAddress != null) {
 			builder.append(peerAddress);
 			if (hasOngoingHandshake()) {

@@ -308,7 +308,7 @@ public class DTLSConnector implements Connector, RecordLayer {
 				new InMemoryConnectionStore(
 						configuration.getMaxConnections(),
 						configuration.getStaleConnectionThreshold(),
-						sessionCache));
+						sessionCache).setTag(configuration.getLoggingTag()));
 	}
 
 	/**
@@ -741,6 +741,7 @@ public class DTLSConnector implements Connector, RecordLayer {
 			} else if (!connection.isExecuting() && running.get()) {
 				LOGGER.debug("Recreate new connection for {}", connection);
 				newConnection = new Connection(connection, new SerialExecutor(executor));
+				connectionStore.remove(connection, false);
 			}
 			if (newConnection != null) {
 				if (running.get()) {
@@ -780,7 +781,7 @@ public class DTLSConnector implements Connector, RecordLayer {
 			Connection peerConnection = new Connection(connection.getPeerAddress(), executor);
 			connection.cancelPendingFlight();
 			synchronized (connectionStore) {
-				connectionStore.remove(peerConnection, removeFromSessionCache);
+				connectionStore.remove(connection, removeFromSessionCache);
 				if (running.get()) {
 					added = connectionStore.put(peerConnection);
 				}
@@ -826,7 +827,6 @@ public class DTLSConnector implements Connector, RecordLayer {
 			LOGGER.debug("Execution shutdown while processing incoming records from peer: {}", peerAddress);
 			return;
 		}
-
 		final Connection connection = getAliveConnection(peerAddress, false);
 		if (connection == null) {
 			final Record record = records.get(0);
@@ -1082,20 +1082,22 @@ public class DTLSConnector implements Connector, RecordLayer {
 					// an established, i.e. fully negotiated, session
 					record.setSession(session);
 					ApplicationMessage message = (ApplicationMessage) record.getFragment();
+					// the fragment could be de-crypted, mark it
 					session.markRecordAsRead(record.getEpoch(), record.getSequenceNumber());
-					// create application message.
-					RawData receivedApplicationMessage = RawData.inbound(message.getData(), session.getConnectionReadContext(), false);
 					if (ongoingHandshake != null) {
-						// the fragment could be de-crypted
-						// thus, the handshake seems to have been completed successfully
+						// the handshake has been completed successfully
 						ongoingHandshake.handshakeCompleted();
 					}
 					connection.refreshAutoResumptionTime();
-					connectionStore.update(connection);
+					connectionStore.update(connection, record.getPeerAddress());
 
 					final RawDataChannel channel = messageHandler;
 					// finally, forward de-crypted message to application layer
 					if (channel != null) {
+						// create application message.
+						DtlsEndpointContext context = session.getConnectionWriteContext();
+						LOGGER.debug("Received APPLICATION_DATA for {}", context);
+						RawData receivedApplicationMessage = RawData.inbound(message.getData(), context, false);
 						channel.receiveData(receivedApplicationMessage);
 					}
 				} catch (HandshakeException | GeneralSecurityException e) {
@@ -1505,7 +1507,12 @@ public class DTLSConnector implements Connector, RecordLayer {
 		}
 		if (ticket != null) {
 			// session has been found in cache, resume it
-			Connection peerConnection = getInitialConnection(connection, false);
+			final Connection peerConnection = getInitialConnection(connection, false);
+			if (peerConnection == null) {
+				LOGGER.debug("Client [{}] tries to resume session [ID={}], but connection store is exhausted!",
+						clientHello.getPeer(), clientHello.getSessionId());
+				return;
+			}
 			final DTLSSession sessionToResume = new DTLSSession(clientHello.getSessionId(), record.getPeerAddress(),
 					ticket, record.getSequenceNumber());
 			final Handshaker handshaker = new ResumingServerHandshaker(clientHello.getMessageSeq(), sessionToResume,
@@ -1710,7 +1717,7 @@ public class DTLSConnector implements Connector, RecordLayer {
 				message.onError(new EndpointUnconnectedException());
 				return;
 			}
-			if (!checkOutboundEndpointContext(message, null)) {
+			if (!checkOutboundEndpointContext(message, connection, null)) {
 				return;
 			}
 			message.onConnecting();
@@ -1756,10 +1763,7 @@ public class DTLSConnector implements Connector, RecordLayer {
 				// terminate the previous connection and add the new one to the store
 				Connection newConnection = new Connection(peerAddress, connection.getExecutor());
 				connection.cancelPendingFlight();
-				synchronized (connectionStore) {
-					connectionStore.remove(connection, false);
-					connectionStore.put(newConnection);
-				}
+				connectionStore.replace(connection, newConnection);
 				Handshaker handshaker;
 				if (sessionId.isEmpty()) {
 					// server may use a empty session id to indicate,
@@ -1792,7 +1796,7 @@ public class DTLSConnector implements Connector, RecordLayer {
 	private void sendMessage(final RawData message, final Connection connection, final DTLSSession session) {
 		try {
 			final EndpointContext ctx = session.getConnectionWriteContext();
-			if (!checkOutboundEndpointContext(message, ctx)) {
+			if (!checkOutboundEndpointContext(message, connection, ctx)) {
 				return;
 			}
 
@@ -1819,17 +1823,19 @@ public class DTLSConnector implements Connector, RecordLayer {
 	 * {@link #endpointContextMatcher}.
 	 * 
 	 * @param message message to be checked
+	 * @param connection the connection to send the message.
 	 * @param connectionContext endpoint context of the connection. May be
-	 *            null, if not established.
-	 * @return true, if outgoing message matches, false, if not and should NOT
-	 *         be send.
+	 *            {@code null}, if not established.
+	 * @return {@code true}, if outgoing message matches, {@code false}, if not
+	 *         and should NOT be send.
 	 * @see EndpointContextMatcher#isToBeSent(EndpointContext, EndpointContext)
 	 */
-	private boolean checkOutboundEndpointContext(final RawData message, final EndpointContext connectionContext) {
+	private boolean checkOutboundEndpointContext(final RawData message, final Connection connection,
+			final EndpointContext connectionContext) {
 		final EndpointContextMatcher endpointMatcher = getEndpointContextMatcher();
 		if (null != endpointMatcher && !endpointMatcher.isToBeSent(message.getEndpointContext(), connectionContext)) {
-			LOGGER.warn("DTLSConnector ({}) drops {} bytes for {} != {}", this, message.getSize(),
-					message.getEndpointContext(), connectionContext);
+			LOGGER.warn("DTLSConnector ({}) drops {} bytes for {} to {} != {}", this, message.getSize(),
+					connection.getConnectionId(), message.getEndpointContext(), connectionContext);
 			message.onError(new EndpointMismatchException());
 			return false;
 		}
