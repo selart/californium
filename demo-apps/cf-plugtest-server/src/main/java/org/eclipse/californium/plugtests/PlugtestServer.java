@@ -47,6 +47,16 @@ import org.eclipse.californium.plugtests.resources.Separate;
 import org.eclipse.californium.plugtests.resources.Shutdown;
 import org.eclipse.californium.plugtests.resources.Validate;
 
+import org.eclipse.californium.scandium.DTLSConnector;
+import org.eclipse.californium.scandium.config.DtlsConnectorConfig;
+import org.eclipse.californium.scandium.dtls.cipher.CipherSuite;
+import org.eclipse.californium.scandium.dtls.pskstore.InMemoryPskStore;
+import org.eclipse.californium.core.network.CoapEndpoint;
+
+import java.net.InetSocketAddress;
+import java.net.InetAddress;
+
+
 // ETSI Plugtest environment
 //import java.net.InetSocketAddress;
 //import org.eclipse.californium.core.network.CoAPEndpoint;
@@ -60,10 +70,7 @@ public class PlugtestServer extends CoapServer {
 
     // exit codes for runtime errors
     public static final int ERR_INIT_FAILED = 1;
-    
-    // allows port configuration in Californium.properties
-    private static final int port = NetworkConfig.getStandard().getInt(NetworkConfig.Keys.COAP_PORT);
-    
+
     public static void main(String[] args) {
     	
         // create server
@@ -74,6 +81,17 @@ public class PlugtestServer extends CoapServer {
 //            server.addEndpoint(new CoAPEndpoint(new InetSocketAddress("127.0.0.1", port)));
 //            server.addEndpoint(new CoAPEndpoint(new InetSocketAddress("2a01:c911:0:2010::10", port)));
 //            server.addEndpoint(new CoAPEndpoint(new InetSocketAddress("10.200.1.2", port)));
+
+            InetSocketAddress sockAddr = new InetSocketAddress(5683);
+            server.addEndpoint(new CoapEndpoint(sockAddr));
+
+            InMemoryPskStore pskStore = new InMemoryPskStore();
+            pskStore.setKey("Client_identity", "secretPSK".getBytes());
+
+            DtlsConnectorConfig.Builder builder = new DtlsConnectorConfig.Builder(new InetSocketAddress(5684));
+            builder.setPskStore(pskStore);
+            DTLSConnector dtlsConnector = new DTLSConnector(builder.build(), null);
+            server.addEndpoint(new CoapEndpoint(dtlsConnector, NetworkConfig.getStandard()));
             
             server.start();
             
@@ -83,8 +101,6 @@ public class PlugtestServer extends CoapServer {
             	// Eclipse IoT metrics
             	ep.addInterceptor(new OriginTracer());
             }
-            
-            System.out.println(PlugtestServer.class.getSimpleName()+" listening on port " + port);
             
         } catch (Exception e) {
             
